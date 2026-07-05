@@ -5,7 +5,7 @@ from sqlalchemy.orm import selectinload
 
 from core.db import get_db
 from core.models import User, UserUnit, Unit, HouseholdInvite, InviteStatus, Estate, UserRole, HouseholdRole, build_full_name, normalize_email
-from core.deps import get_current_user, get_current_unit, require_estate_membership
+from core.deps import get_current_user, get_current_unit, require_estate_membership, set_tenant_context
 from schemas import HouseholdMemberResponse, HouseholdCodeResponse, HouseholdAddRequest
 from core.mail import send_email_async
 from core.notifications import notifications
