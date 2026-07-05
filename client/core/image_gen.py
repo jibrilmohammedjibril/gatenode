@@ -190,6 +190,9 @@ async def generate_invite_image(visitor_name, invite_type, access_code, date_str
         return io.BytesIO(screenshot_bytes)
 
 def upload_to_minio(file_obj, filename):
+    if not settings.MINIO_ACCESS_KEY or not settings.MINIO_SECRET_KEY:
+        print("MinIO is not configured; skipping upload.")
+        return None
     s3_client = boto3.client(
         's3',
         endpoint_url=f"https://{settings.MINIO_ENDPOINT}" if settings.MINIO_SECURE else f"http://{settings.MINIO_ENDPOINT}",
@@ -218,6 +221,9 @@ def delete_from_minio(filename: str):
     Deletes an object from the MinIO/S3 bucket.
     Used for garbage collection after WhatsApp template dispatch.
     """
+    if not settings.MINIO_ACCESS_KEY or not settings.MINIO_SECRET_KEY:
+        print("MinIO is not configured; skipping delete.")
+        return False
     s3_client = boto3.client(
         's3',
         endpoint_url=f"https://{settings.MINIO_ENDPOINT}" if settings.MINIO_SECURE else f"http://{settings.MINIO_ENDPOINT}",

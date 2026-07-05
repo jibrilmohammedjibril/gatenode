@@ -12,6 +12,8 @@ ALLOWED_UPLOAD_CONTENT_TYPES = {"image/jpeg", "image/png", "image/gif", "image/w
 # Initialize S3 Client
 # Note: In production, ensure this is instantiated efficiently or once.
 def get_s3_client():
+    if not settings.MINIO_ACCESS_KEY or not settings.MINIO_SECRET_KEY:
+        raise HTTPException(status_code=503, detail="File storage is not configured")
     return boto3.client(
         "s3",
         endpoint_url=f"http{'s' if settings.MINIO_SECURE else ''}://{settings.MINIO_ENDPOINT}",

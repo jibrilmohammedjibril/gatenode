@@ -1,5 +1,8 @@
+import logging
 from pydantic_settings import BaseSettings
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 class Settings(BaseSettings):
     PROJECT_NAME: str = "Gatenode Resident Client"
@@ -95,16 +98,35 @@ def validate_startup_settings() -> None:
 
     required = {
         "SECRET_KEY": settings.SECRET_KEY,
-        "MINIO_ACCESS_KEY": settings.MINIO_ACCESS_KEY,
-        "MINIO_SECRET_KEY": settings.MINIO_SECRET_KEY,
-        "NOMBA_CLIENT_ID": settings.NOMBA_CLIENT_ID,
-        "NOMBA_CLIENT_SECRET": settings.NOMBA_CLIENT_SECRET,
-        "NOMBA_ACCOUNT_ID": settings.NOMBA_ACCOUNT_ID,
     }
 
     for name, value in required.items():
         if not value:
             missing.append(name)
+
+    if settings.MINIO_ACCESS_KEY or settings.MINIO_SECRET_KEY:
+        minio_missing = []
+        if not settings.MINIO_ACCESS_KEY:
+            minio_missing.append("MINIO_ACCESS_KEY")
+        if not settings.MINIO_SECRET_KEY:
+            minio_missing.append("MINIO_SECRET_KEY")
+        if minio_missing:
+            logger.warning(
+                "MinIO is partially configured; file uploads will be unavailable until %s is set.",
+                ", ".join(minio_missing),
+            )
+
+    nomba_values = {
+        "NOMBA_CLIENT_ID": settings.NOMBA_CLIENT_ID,
+        "NOMBA_CLIENT_SECRET": settings.NOMBA_CLIENT_SECRET,
+        "NOMBA_ACCOUNT_ID": settings.NOMBA_ACCOUNT_ID,
+    }
+    if any(nomba_values.values()) and not all(nomba_values.values()):
+        missing_nomba = ", ".join(name for name, value in nomba_values.items() if not value)
+        logger.warning(
+            "Nomba is partially configured; wallet funding and transfers will be unavailable until %s is set.",
+            missing_nomba,
+        )
 
     apns_values = {
         "APPLE_TEAM_ID": settings.APPLE_TEAM_ID,
@@ -112,7 +134,11 @@ def validate_startup_settings() -> None:
         "APPLE_P8": settings.APPLE_P8_PATH or getattr(settings, "APPLE_P8_KEY", None),
     }
     if any(apns_values.values()) and not all(apns_values.values()):
-        missing.extend(name for name, value in apns_values.items() if not value)
+        missing_apns = ", ".join(name for name, value in apns_values.items() if not value)
+        logger.warning(
+            "APNs is partially configured; push delivery will be unavailable until %s is set.",
+            missing_apns,
+        )
 
     if missing:
         missing_list = ", ".join(sorted(set(missing)))

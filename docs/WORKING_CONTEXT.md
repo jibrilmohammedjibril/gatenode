@@ -30,16 +30,13 @@ Detailed references:
 
 ## Required Environment Variables
 
-Minimum required secrets and service credentials should come from environment, not code defaults:
+Minimum required secrets should come from environment, not code defaults. Optional integrations can be left unset for local client startup and will disable only the related features:
 
 - `SECRET_KEY`
 - `DATABASE_URL` or the `POSTGRES_*` settings
 - `ZEPTOMAIL_API_KEY` if email delivery is enabled
-- `MINIO_ACCESS_KEY`
-- `MINIO_SECRET_KEY`
-- `NOMBA_CLIENT_ID`
-- `NOMBA_CLIENT_SECRET`
-- `NOMBA_ACCOUNT_ID`
+- `MINIO_ACCESS_KEY` and `MINIO_SECRET_KEY` if file uploads are enabled
+- `NOMBA_CLIENT_ID`, `NOMBA_CLIENT_SECRET`, and `NOMBA_ACCOUNT_ID` if wallet funding or transfers are enabled
 - `FIREBASE_CREDENTIALS` for FCM push delivery
 - `APPLE_TEAM_ID`, `APPLE_KEY_ID`, and `APPLE_P8_PATH` or `APPLE_P8_KEY` for APNs
 
