@@ -13,7 +13,7 @@ router = APIRouter(prefix="/config", tags=["Config"])
 async def get_home_config(
     x_estate_id: Optional[str] = Header(None, alias="X-Estate-ID"),
     x_unit_id: Optional[str] = Header(None, alias="X-Unit-ID"),
-    current_user: User = Depends(require_estate_membership()),
+    current_user: User = Depends(require_estate_membership),
     db: AsyncSession = Depends(get_db)
 ):
     """

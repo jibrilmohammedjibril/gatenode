@@ -104,7 +104,7 @@ async def dispatch_alert_notifications(
 @router.post("/alerts/")
 async def trigger_emergency(
     background_tasks: BackgroundTasks,
-    current_user: User = Depends(require_estate_membership()),
+    current_user: User = Depends(require_estate_membership),
     unit = Depends(get_current_unit),
     db: AsyncSession = Depends(get_db)
 ):
@@ -175,7 +175,7 @@ async def trigger_emergency(
 
 @router.get("/community/spending")
 async def get_community_spending(
-    current_user: User = Depends(require_estate_membership())
+    current_user: User = Depends(require_estate_membership)
 ):
     """Breakdown of estate expenses (Transparency feature)."""
     # Mock data for now until Expense/Budget models exist

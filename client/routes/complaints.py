@@ -12,7 +12,7 @@ router = APIRouter(prefix="/complaints", tags=["Complaints"])
 @router.post("", response_model=ComplaintResponse)
 async def submit_complaint(
     data: ComplaintCreate,
-    current_user: User = Depends(require_estate_membership()), # Sets RLS
+    current_user: User = Depends(require_estate_membership), # Sets RLS
     db: AsyncSession = Depends(get_db)
 ):
     # Payload has unitId optional.
@@ -73,7 +73,7 @@ async def submit_complaint(
 async def list_complaints(
     page: int = 1,
     limit: int = 20,
-    current_user: User = Depends(require_estate_membership()),
+    current_user: User = Depends(require_estate_membership),
     db: AsyncSession = Depends(get_db)
 ):
     query = select(Complaint).where(Complaint.user_id == current_user.id)

@@ -49,7 +49,7 @@ async def get_sticker_fee(
 @router.post("", response_model=VehicleResponse)
 async def register_vehicle(
     data: VehicleCreate,
-    current_user: User = Depends(require_estate_membership()),
+    current_user: User = Depends(require_estate_membership),
     unit = Depends(get_current_unit),
     db: AsyncSession = Depends(get_db)
 ):
@@ -90,7 +90,7 @@ async def register_vehicle(
 @router.delete("/{vehicle_id}")
 async def delete_vehicle(
     vehicle_id: str,
-    current_user: User = Depends(require_estate_membership()),
+    current_user: User = Depends(require_estate_membership),
     db: AsyncSession = Depends(get_db)
 ):
     result = await db.execute(
@@ -106,7 +106,7 @@ async def delete_vehicle(
 
 @router.get("", response_model=list[VehicleResponse])
 async def list_my_vehicles(
-    current_user: User = Depends(require_estate_membership()),
+    current_user: User = Depends(require_estate_membership),
     unit = Depends(get_current_unit),
     db: AsyncSession = Depends(get_db)
 ):

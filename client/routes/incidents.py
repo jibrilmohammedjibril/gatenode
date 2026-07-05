@@ -41,7 +41,7 @@ async def require_incident_context(
     x_tenant_id: str = Header(..., alias="X-Tenant-ID"),
     x_unit_id: str = Header(..., alias="X-Unit-ID"),
     _x_platform: str | None = Header(None, alias="X-Platform"),
-    current_user: User = Depends(require_estate_membership()),
+    current_user: User = Depends(require_estate_membership),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     if x_estate_id != current_user.estate_id:

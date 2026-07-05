@@ -30,7 +30,7 @@ def _resolve_name_fields(
 
 @router.get("", response_model=list[HouseholdMemberResponse])
 async def list_household_members(
-    current_user: User = Depends(require_estate_membership()),
+    current_user: User = Depends(require_estate_membership),
     unit = Depends(get_current_unit), # Mandatory
     db: AsyncSession = Depends(get_db)
 ):
@@ -67,7 +67,7 @@ async def list_household_members(
 @router.post("", response_model=dict)
 async def add_member(
     data: HouseholdAddRequest,
-    current_user: User = Depends(require_estate_membership()),
+    current_user: User = Depends(require_estate_membership),
     unit = Depends(get_current_unit),
     db: AsyncSession = Depends(get_db)
 ):
@@ -197,7 +197,7 @@ async def add_member(
 @router.post("/invite", response_model=dict)
 async def add_member_alias(
     data: HouseholdAddRequest,
-    current_user: User = Depends(require_estate_membership()),
+    current_user: User = Depends(require_estate_membership),
     unit = Depends(get_current_unit),
     db: AsyncSession = Depends(get_db)
 ):
@@ -207,7 +207,7 @@ async def add_member_alias(
 @router.delete("/{target_user_id}")
 async def remove_member(
     target_user_id: str,
-    current_user: User = Depends(require_estate_membership()),
+    current_user: User = Depends(require_estate_membership),
     unit = Depends(get_current_unit),
     db: AsyncSession = Depends(get_db)
 ):
