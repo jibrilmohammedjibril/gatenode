@@ -1,0 +1,43 @@
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.env
+.venv
+env.bak/
+venv.bak/
+
+# Logs
+*.log
+logs/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Editor
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Artifacts
+dist/
+build/
+*.egg-info/
+client_logs.txt
+*.p8
+
+# Local artifacts
+check_*.py
+cookies.txt
+temp_logos/
+test_pil_card_v3.png
+client/PHOTO-2026-02-08-16-11-05.jpg
+client/WhatsApp Image 2026-02-08 at 15.23.52.jpeg

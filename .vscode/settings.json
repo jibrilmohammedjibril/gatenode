@@ -1,0 +1,12 @@
+{
+  "python.analysis.extraPaths": [
+    "./client",
+    "./admin",
+    "./security"
+  ],
+  "python.autoComplete.extraPaths": [
+    "./client",
+    "./admin",
+    "./security"
+  ]
+}

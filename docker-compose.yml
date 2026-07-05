@@ -1,0 +1,33 @@
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: gatenode_db
+    restart: always
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=gatenode
+    ports:
+      - "5440:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  client:
+    build: 
+      context: ./client
+    container_name: gatenode_client
+    restart: always
+    ports:
+      - "8000:8000"
+    env_file:
+      - path: .env
+        required: false
+      - path: client/.env
+        required: false
+    environment:
+      - DATABASE_URL=${DATABASE_URL:-postgresql://postgres:postgres@db:5432/gatenode}
+    depends_on:
+      - db
+
+volumes:
+  postgres_data:
