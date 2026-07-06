@@ -104,10 +104,18 @@ async def provision_wallet_virtual_account(
         raise HTTPException(status_code=status_code, detail=str(exc))
 
     res_data = response.get("data", {})
-    account_id = res_data.get("accountId")
-    bank_name = res_data.get("bankName")
-    account_number = res_data.get("accountNumber")
-    account_name_response = res_data.get("accountName")
+    account_id = res_data.get("accountId") or res_data.get("accountHolderId") or res_data.get("accountRef")
+    bank_name = res_data.get("bankName") or res_data.get("bank_name")
+    account_number = (
+        res_data.get("accountNumber")
+        or res_data.get("bankAccountNumber")
+        or res_data.get("account_number")
+    )
+    account_name_response = (
+        res_data.get("accountName")
+        or res_data.get("bankAccountName")
+        or res_data.get("account_name")
+    )
 
     if not account_id or not bank_name or not account_number or not account_name_response:
         wallet_profile.status = "account_creation_failed"
