@@ -17,6 +17,7 @@ from core.notifications import notifications
 from core.rate_limit import limiter, RateLimits
 
 router = APIRouter(prefix="/webhooks", tags=["Webhooks"])
+public_router = APIRouter(prefix="/webhook", tags=["Webhooks"])
 logger = logging.getLogger(__name__)
 
 async def _create_webhook_log(
@@ -369,6 +370,7 @@ async def _apply_transfer_out_webhook(
 
 
 @router.post("/nomba")
+@public_router.post("/nomba")
 @limiter.limit(RateLimits.WEBHOOK)
 async def nomba_webhook(request: Request, db: AsyncSession = Depends(get_db)):
     body_bytes = await request.body()

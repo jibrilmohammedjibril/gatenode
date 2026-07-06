@@ -51,6 +51,13 @@ Latest update: direct resident signup, estate-code onboarding, Nomba wallet fund
 - `GET /dm/conversations`
 - `GET /public/estate-branding/{estate_id}`
 
+## Webhooks
+
+- `POST /webhooks/nomba`
+- `POST /webhook/nomba`
+
+Both URLs point to the same Nomba webhook handler. Use whichever one is easiest to register in the provider dashboard.
+
 ## Behavior Notes
 
 - Pre-join users should still be able to create accounts and sign in.
