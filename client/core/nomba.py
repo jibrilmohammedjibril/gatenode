@@ -115,14 +115,15 @@ class NombaService:
         bvn: str,
         currency: str = "NGN",
     ) -> Dict[str, Any]:
-        # Based on typical Nomba Virtual Account API
+        # Nomba virtual accounts are created on the documented /v1/accounts/virtual endpoint.
+        # Per Nomba docs, accountRef, accountName, and currency are required; bvn is optional.
         payload = {
             "accountRef": account_ref,
             "accountName": account_name,
             "currency": currency,
             "bvn": bvn,
         }
-        return await self._request("POST", "/v1/accounts", payload=payload)
+        return await self._request("POST", "/v1/accounts/virtual", payload=payload)
 
     async def fetch_account_balance(self, *, account_id: str) -> Dict[str, Any]:
         # Placeholder for fetching account balance if Nomba supports per-virtual-account balances
