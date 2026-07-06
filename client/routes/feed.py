@@ -303,33 +303,65 @@ async def _serialize_posts(
 
 
 async def require_feed_context(
-    x_estate_id: str = Header(..., alias="X-Estate-ID"),
-    x_unit_id: str = Header(..., alias="X-Unit-ID"),
+    x_estate_id: Optional[str] = Header(None, alias="X-Estate-ID"),
+    x_unit_id: Optional[str] = Header(None, alias="X-Unit-ID"),
     current_user: User = Depends(require_estate_membership),
     db: AsyncSession = Depends(get_db),
 ) -> Dict[str, Any]:
-    if x_estate_id != current_user.estate_id:
+    if x_estate_id and x_estate_id != current_user.estate_id:
         raise HTTPException(status_code=403, detail="X-Estate-ID does not match the authenticated user's estate")
 
-    stmt = (
-        select(Unit, Block)
-        .join(Block, Unit.block_id == Block.id)
-        .join(UserUnit, UserUnit.unit_id == Unit.id)
-        .where(
-            UserUnit.user_id == current_user.id,
-            UserUnit.unit_id == x_unit_id,
-            Block.estate_id == current_user.estate_id,
-        )
-    )
-    row = (await db.execute(stmt)).first()
-    if not row:
-        raise HTTPException(status_code=403, detail="Access to this unit denied")
+    unit = None
+    block = None
 
-    unit, block = row
+    if x_unit_id:
+        stmt = (
+            select(Unit, Block)
+            .join(Block, Unit.block_id == Block.id)
+            .join(UserUnit, UserUnit.unit_id == Unit.id)
+            .where(
+                UserUnit.user_id == current_user.id,
+                UserUnit.unit_id == x_unit_id,
+                Block.estate_id == current_user.estate_id,
+            )
+        )
+        row = (await db.execute(stmt)).first()
+        if not row:
+            raise HTTPException(status_code=403, detail="Access to this unit denied")
+        unit, block = row
+    else:
+        stmt = (
+            select(Unit, Block)
+            .join(Block, Unit.block_id == Block.id)
+            .join(UserUnit, UserUnit.unit_id == Unit.id)
+            .where(
+                UserUnit.user_id == current_user.id,
+                UserUnit.is_primary == True,
+                Block.estate_id == current_user.estate_id,
+            )
+        )
+        row = (await db.execute(stmt)).first()
+        if row:
+            unit, block = row
+
+    if not unit or not block:
+        fallback_stmt = (
+            select(UserUnit, Unit, Block)
+            .join(Unit, UserUnit.unit_id == Unit.id)
+            .join(Block, Unit.block_id == Block.id)
+            .where(
+                UserUnit.user_id == current_user.id,
+                Block.estate_id == current_user.estate_id,
+            )
+        )
+        row = (await db.execute(fallback_stmt)).first()
+        if row:
+            _, unit, block = row
+
     return {
         "current_user": current_user,
         "unit": unit,
-        "unit_label": _format_unit_label(block, unit),
+        "unit_label": _format_unit_label(block, unit) if unit and block else "Resident",
     }
 
 
