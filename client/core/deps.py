@@ -10,6 +10,7 @@ from core.security import verify_token
 
 # Specific to Client API
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/token")
+optional_oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/token", auto_error=False)
 
 async def get_current_user(
     token: str = Depends(oauth2_scheme), 
@@ -42,6 +43,33 @@ async def get_current_user(
                 detail="Session expired (Logged in on another device)"
             )
         
+    return user
+
+
+async def get_optional_current_user(
+    token: Optional[str] = Depends(optional_oauth2_scheme),
+    db: AsyncSession = Depends(get_db),
+) -> Optional[User]:
+    if not token:
+        return None
+
+    try:
+        payload = verify_token(token)
+        user_id: str = payload.get("sub")
+        if user_id is None:
+            return None
+    except Exception:
+        return None
+
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalars().first()
+    if user is None or user.role != UserRole.RESIDENT:
+        return None
+
+    token_id = payload.get("tid")
+    if user.active_token_id and token_id != user.active_token_id:
+        return None
+
     return user
 
 

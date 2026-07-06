@@ -6,7 +6,7 @@ from sqlalchemy.future import select
 from sqlalchemy import func, desc, delete, update, and_, or_
 from sqlalchemy.orm import selectinload
 from core.db import get_db, AsyncSessionLocal
-from core.deps import get_current_user, require_estate_membership
+from core.deps import get_current_user, get_optional_current_user, require_estate_membership
 from core.models import User, Post, PostLike, PostRepost, Poll, PollOption, PollVote, FavoriteUser, Unit, Block, UserUnit
 from schemas import (
     FeedPostCreate, FeedReplyCreate, FeedPostResponse, FeedListResponse,
@@ -49,7 +49,7 @@ async def _resolve_post_cursor(
     db: AsyncSession,
     *,
     cursor: str,
-    estate_id: str,
+    estate_id: str | None = None,
     author_id: str | None = None,
 ) -> tuple[datetime, str]:
     cursor_created_at, cursor_post_id = _parse_post_cursor(cursor)
@@ -58,9 +58,10 @@ async def _resolve_post_cursor(
 
     stmt = select(Post.created_at, Post.id).where(
         Post.id == cursor_post_id,
-        Post.estate_id == estate_id,
         Post.is_deleted == False,
     )
+    if estate_id:
+        stmt = stmt.where(Post.estate_id == estate_id)
     if author_id:
         stmt = stmt.where(Post.author_id == author_id)
 
@@ -74,7 +75,7 @@ async def _get_estate_post(
     db: AsyncSession,
     *,
     post_id: str,
-    estate_id: str,
+    estate_id: str | None = None,
     options: tuple[Any, ...] = (),
 ) -> Post | None:
     stmt = select(Post)
@@ -82,9 +83,10 @@ async def _get_estate_post(
         stmt = stmt.options(option)
     stmt = stmt.where(
         Post.id == post_id,
-        Post.estate_id == estate_id,
         Post.is_deleted == False,
     )
+    if estate_id:
+        stmt = stmt.where(Post.estate_id == estate_id)
     return (await db.execute(stmt)).scalars().first()
 
 
@@ -158,7 +160,7 @@ async def _load_like_data(
     db: AsyncSession,
     *,
     post_ids: List[str],
-    current_user_id: str,
+    current_user_id: str | None,
 ) -> tuple[Dict[str, int], set[str]]:
     if not post_ids:
         return {}, set()
@@ -170,8 +172,12 @@ async def _load_like_data(
     )
     liked_stmt = select(PostLike.post_id).where(
         PostLike.post_id.in_(post_ids),
-        PostLike.user_id == current_user_id,
     )
+    if current_user_id:
+        liked_stmt = liked_stmt.where(PostLike.user_id == current_user_id)
+    else:
+        like_counts = {post_id: count for post_id, count in (await db.execute(count_stmt)).all()}
+        return like_counts, set()
 
     like_counts = {post_id: count for post_id, count in (await db.execute(count_stmt)).all()}
     liked_post_ids = set((await db.execute(liked_stmt)).scalars().all())
@@ -253,7 +259,7 @@ async def _serialize_posts(
     db: AsyncSession,
     posts: List[Post],
     *,
-    current_user_id: str,
+    current_user_id: str | None,
     reply_counts: Optional[Dict[str, int]] = None,
     reply_to_authors: Optional[Dict[str, str]] = None,
 ) -> List[Dict[str, Any]]:
@@ -385,21 +391,18 @@ async def _send_post_reply_notification(user_id: str, replier_name: str, post_id
 async def get_feed(
     cursor: Optional[str] = Query(None),
     limit: int = Query(20, le=50),
-    context: Dict[str, Any] = Depends(require_feed_context),
+    current_user: Optional[User] = Depends(get_optional_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Get the estate's community feed.
+    Get the public community feed.
     """
-    current_user = context["current_user"]
-
-    # Base query: same estate, not deleted, newest first
+    # Base query: all posts, not deleted, newest first
     stmt = select(Post).options(
         selectinload(Post.author),
         selectinload(Post.poll),
         selectinload(Post.unit).selectinload(Unit.block),
     ).where(
-        Post.estate_id == current_user.estate_id,
         Post.is_deleted == False,
         Post.reply_to_id == None
     ).order_by(desc(Post.created_at), desc(Post.id))
@@ -408,7 +411,6 @@ async def get_feed(
         cursor_created_at, cursor_post_id = await _resolve_post_cursor(
             db,
             cursor=cursor,
-            estate_id=current_user.estate_id,
         )
         stmt = stmt.where(
             or_(
@@ -428,7 +430,7 @@ async def get_feed(
     enriched_posts = await _serialize_posts(
         db,
         posts,
-        current_user_id=current_user.id,
+        current_user_id=current_user.id if current_user else None,
         reply_counts=reply_counts,
     )
 
@@ -438,13 +440,12 @@ async def get_feed(
 @router.get("/posts/{post_id}", response_model=FeedPostResponse, response_model_by_alias=False)
 async def get_feed_post(
     post_id: str,
-    context: Dict[str, Any] = Depends(require_feed_context),
+    current_user: Optional[User] = Depends(get_optional_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Get a single feed post in the current estate context.
+    Get a single public feed post.
     """
-    current_user = context["current_user"]
     stmt = (
         select(Post)
         .options(
@@ -454,7 +455,6 @@ async def get_feed_post(
         )
         .where(
             Post.id == post_id,
-            Post.estate_id == current_user.estate_id,
             Post.is_deleted == False,
         )
     )
@@ -465,7 +465,7 @@ async def get_feed_post(
     serialized_posts = await _serialize_posts(
         db,
         [post],
-        current_user_id=current_user.id,
+        current_user_id=current_user.id if current_user else None,
         reply_counts=await _load_reply_counts(db, [post.id]),
     )
     return serialized_posts[0]
@@ -678,20 +678,18 @@ async def get_user_posts(
     user_id: str,
     cursor: Optional[str] = Query(None),
     limit: int = Query(20, le=50),
-    context: Dict[str, Any] = Depends(require_feed_context),
+    current_user: Optional[User] = Depends(get_optional_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """
-    Get posts from a specific user.
+    Get posts from a specific user across the public feed.
     """
-    current_user = context["current_user"]
     stmt = select(Post).options(
         selectinload(Post.author),
         selectinload(Post.poll),
         selectinload(Post.unit).selectinload(Unit.block),
     ).where(
         Post.author_id == user_id,
-        Post.estate_id == current_user.estate_id,
         Post.is_deleted == False,
         Post.reply_to_id == None,
     ).order_by(desc(Post.created_at), desc(Post.id))
@@ -700,7 +698,6 @@ async def get_user_posts(
         cursor_created_at, cursor_post_id = await _resolve_post_cursor(
             db,
             cursor=cursor,
-            estate_id=current_user.estate_id,
             author_id=user_id,
         )
         stmt = stmt.where(
@@ -717,7 +714,7 @@ async def get_user_posts(
     enriched = await _serialize_posts(
         db,
         posts,
-        current_user_id=current_user.id,
+        current_user_id=current_user.id if current_user else None,
         reply_counts=await _load_reply_counts(db, [post.id for post in posts]),
     )
 
@@ -852,20 +849,18 @@ async def reply_to_post(
 @router.get("/posts/{post_id}/replies", response_model=List[FeedPostResponse], response_model_by_alias=False)
 async def get_post_replies(
     post_id: str,
-    context: Dict[str, Any] = Depends(require_feed_context),
+    current_user: Optional[User] = Depends(get_optional_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Get replies for a specific post.
+    Get replies for a specific post from the public feed.
     Returns a flat array instead of a paginated object.
     """
-    current_user = context["current_user"]
-
     # 1. Check parent post
     parent = await _get_estate_post(
         db,
         post_id=post_id,
-        estate_id=current_user.estate_id,
+        estate_id=None,
         options=(selectinload(Post.author),),
     )
     if not parent:
@@ -877,7 +872,6 @@ async def get_post_replies(
         selectinload(Post.unit).selectinload(Unit.block),
     ).where(
         Post.reply_to_id == post_id,
-        Post.estate_id == current_user.estate_id,
         Post.is_deleted == False
     ).order_by(Post.created_at)
     
@@ -887,7 +881,7 @@ async def get_post_replies(
     return await _serialize_posts(
         db,
         replies,
-        current_user_id=current_user.id,
+        current_user_id=current_user.id if current_user else None,
         reply_to_authors={
             reply.id: (parent.author.full_name if parent.author else "Unknown")
             for reply in replies
