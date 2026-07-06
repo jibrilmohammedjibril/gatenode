@@ -31,6 +31,8 @@ The Client service is the public resident backend. It owns direct signup, estate
   - wallet status
   - virtual account details
   - live bank list from Nomba
+  - `POST /wallet/resolve-bank-account`
+  - resolve bank account names from Nomba
   - bank transfer-out withdrawals
 - `/bills`
   - service-charge summary

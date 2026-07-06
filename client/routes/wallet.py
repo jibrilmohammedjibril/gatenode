@@ -19,6 +19,8 @@ from schemas import (
     WalletStatusResponse,
     WalletSetupRequest,
     WalletSetupResponse,
+    WalletBankLookupRequest,
+    WalletBankLookupResponse,
     WalletTransferOutRequest,
     WalletTransferOutResponse,
 )
@@ -125,6 +127,28 @@ def _normalized_transfer_reference() -> str:
     return f"WDR-{uuid.uuid4().hex[:12].upper()}"
 
 
+def _normalize_lookup_name(value: str) -> str:
+    return " ".join(value.strip().lower().split())
+
+
+def _extract_lookup_account_name(response: object) -> str | None:
+    if not isinstance(response, dict):
+        return None
+
+    data = response.get("data")
+    candidates = []
+    if isinstance(data, dict):
+        candidates.append(data)
+    candidates.append(response)
+
+    for source in candidates:
+        for key in ("accountName", "account_name", "beneficiaryName", "name"):
+            value = source.get(key)
+            if value:
+                return str(value).strip()
+    return None
+
+
 @router.get("/banks")
 async def list_banks(
     q: str | None = Query(None, description="Optional search term for bank name or code"),
@@ -146,6 +170,51 @@ async def list_banks(
     return {
         "banks": sorted(banks, key=lambda bank: bank["bankName"]),
         "count": len(banks),
+        "source": "nomba",
+    }
+
+
+@router.post("/resolve-bank-account", response_model=WalletBankLookupResponse)
+async def resolve_bank_account(
+    data: WalletBankLookupRequest,
+    current_user: User = Depends(set_tenant_context),
+):
+    account_number = (data.account_number or "").strip()
+    bank_code = (data.bank_code or "").strip()
+    bank_name = (data.bank_name or "").strip()
+
+    if not account_number.isdigit() or len(account_number) != 10:
+        raise HTTPException(status_code=400, detail="accountNumber must be a 10-digit bank account number")
+    if not bank_code:
+        raise HTTPException(status_code=400, detail="bankCode is required")
+    if not bank_name:
+        raise HTTPException(status_code=400, detail="bankName is required")
+
+    try:
+        response = await nomba_service.resolve_bank_account(
+            bank_code=bank_code,
+            account_number=account_number,
+        )
+    except NombaAPIError as exc:
+        raise HTTPException(status_code=502, detail=f"Failed to resolve bank account from Nomba: {exc}")
+
+    resolved_account_name = _extract_lookup_account_name(response)
+    if not resolved_account_name:
+        raise HTTPException(status_code=502, detail="Nomba bank lookup did not return an account name")
+
+    matches_provided_account_name = None
+    if data.account_name:
+        matches_provided_account_name = (
+            _normalize_lookup_name(data.account_name) == _normalize_lookup_name(resolved_account_name)
+        )
+
+    return {
+        "bankName": bank_name,
+        "bankCode": bank_code,
+        "accountNumber": account_number,
+        "accountName": resolved_account_name,
+        "verified": True,
+        "matchesProvidedAccountName": matches_provided_account_name,
         "source": "nomba",
     }
 
@@ -282,6 +351,24 @@ async def transfer_out(
 ):
     verify_transaction_pin(current_user, data.transaction_pin)
     _validate_transfer_details(data)
+
+    try:
+        lookup_response = await nomba_service.resolve_bank_account(
+            bank_code=data.bank_code,
+            account_number=data.account_number,
+        )
+    except NombaAPIError as exc:
+        raise HTTPException(status_code=502, detail=f"Failed to confirm bank account details with Nomba: {exc}")
+
+    resolved_account_name = _extract_lookup_account_name(lookup_response)
+    if not resolved_account_name:
+        raise HTTPException(status_code=502, detail="Nomba bank lookup did not return an account name")
+
+    if _normalize_lookup_name(data.account_name) != _normalize_lookup_name(resolved_account_name):
+        raise HTTPException(
+            status_code=400,
+            detail="accountName does not match the Nomba bank lookup result",
+        )
 
     wallet_profile = (
         await db.execute(select(WalletProfile).where(WalletProfile.user_id == current_user.id))

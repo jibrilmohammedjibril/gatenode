@@ -164,6 +164,40 @@ class NombaService:
         }
         return await self._request("POST", "/v1/transfers/bank", payload=payload)
 
+    def _extract_account_lookup_name(self, payload: Dict[str, Any]) -> Optional[str]:
+        data = payload.get("data", payload)
+        if isinstance(data, dict):
+            for key in ("accountName", "account_name", "beneficiaryName", "name"):
+                value = data.get(key)
+                if value:
+                    return str(value).strip()
+        if isinstance(payload, dict):
+            for key in ("accountName", "account_name", "beneficiaryName", "name"):
+                value = payload.get(key)
+                if value:
+                    return str(value).strip()
+        return None
+
+    async def resolve_bank_account(
+        self,
+        *,
+        bank_code: str,
+        account_number: str,
+    ) -> Dict[str, Any]:
+        payload = {
+            "bankCode": bank_code,
+            "accountNumber": account_number,
+        }
+        return await self._request_with_candidates(
+            "POST",
+            (
+                "/v1/transfers/bank/lookup",
+                "/v1/transfers/bank/account/lookup",
+                "/v1/transfers/bank/resolve",
+            ),
+            payload=payload,
+        )
+
     def _normalize_bank_item(self, item: Dict[str, Any]) -> Dict[str, Any]:
         bank_name = (
             item.get("bankName")

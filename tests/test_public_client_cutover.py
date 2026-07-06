@@ -8,9 +8,14 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 class PublicClientCutoverTests(unittest.TestCase):
     def test_wallet_transfer_out_uses_nomba_and_tracks_transfer_state(self):
         source = (ROOT / "client/routes/wallet.py").read_text()
+        nomba_source = (ROOT / "client/core/nomba.py").read_text()
         self.assertIn("@router.post(\"/transfer-out\", response_model=WalletTransferOutResponse)", source)
         self.assertIn("verify_transaction_pin(current_user, data.transaction_pin)", source)
         self.assertIn("_validate_transfer_details(data)", source)
+        self.assertIn("@router.post(\"/resolve-bank-account\", response_model=WalletBankLookupResponse)", source)
+        self.assertIn("await nomba_service.resolve_bank_account(", source)
+        self.assertIn("_extract_lookup_account_name", source)
+        self.assertIn("accountName does not match the Nomba bank lookup result", source)
         self.assertIn("nomba_service.create_transfer(", source)
         self.assertIn('"transfer_state": transfer_state', source)
         self.assertIn('"balance_applied": is_final_success', source)
@@ -20,6 +25,8 @@ class PublicClientCutoverTests(unittest.TestCase):
         self.assertIn("@router.get(\"/banks\")", source)
         self.assertIn("await nomba_service.list_banks()", source)
         self.assertNotIn("NIGERIAN_BANKS", source)
+        self.assertIn("resolve_bank_account", nomba_source)
+        self.assertIn("/v1/transfers/bank/lookup", nomba_source)
 
     def test_bills_and_dashboard_require_estate_membership(self):
         bills_source = (ROOT / "client/routes/bills.py").read_text()
@@ -63,6 +70,7 @@ class PublicClientCutoverTests(unittest.TestCase):
         self.assertIn("estate-code onboarding", client_doc)
         self.assertIn("bank transfer-out withdrawals", client_doc)
         self.assertIn("live bank list from Nomba", client_doc)
+        self.assertIn("POST /wallet/resolve-bank-account", client_doc)
 
     def test_service_charge_is_internal_ledger_only(self):
         payment_service = (ROOT / "client/core/services/payment_service.py").read_text()

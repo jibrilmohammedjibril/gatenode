@@ -156,6 +156,37 @@ The response is already normalized to:
 }
 ```
 
+### Bank account lookup
+
+`POST /wallet/resolve-bank-account`
+
+Use this before transfer-out to confirm the resolved recipient name from Nomba.
+
+Request body:
+
+```json
+{
+  "bankName": "First Bank",
+  "bankCode": "011",
+  "accountNumber": "0123456789",
+  "accountName": "Jide Adeyemi"
+}
+```
+
+Response:
+
+```json
+{
+  "bankName": "First Bank",
+  "bankCode": "011",
+  "accountNumber": "0123456789",
+  "accountName": "Jide Adeyemi",
+  "verified": true,
+  "matchesProvidedAccountName": true,
+  "source": "nomba"
+}
+```
+
 ### Transfer out
 
 `POST /wallet/transfer-out`

@@ -177,6 +177,29 @@ class WalletTransferOutRequest(BaseModel):
         populate_by_name = True
 
 
+class WalletBankLookupRequest(BaseModel):
+    bank_name: str = Field(..., alias="bankName")
+    bank_code: str = Field(..., alias="bankCode")
+    account_number: str = Field(..., alias="accountNumber")
+    account_name: Optional[str] = Field(None, alias="accountName")
+
+    class Config:
+        populate_by_name = True
+
+
+class WalletBankLookupResponse(BaseModel):
+    bank_name: str = Field(..., alias="bankName")
+    bank_code: str = Field(..., alias="bankCode")
+    account_number: str = Field(..., alias="accountNumber")
+    account_name: str = Field(..., alias="accountName")
+    verified: bool = True
+    matches_provided_account_name: Optional[bool] = Field(None, alias="matchesProvidedAccountName")
+    source: str = "nomba"
+
+    class Config:
+        populate_by_name = True
+
+
 class WalletTransferOutResponse(BaseModel):
     status: str
     reference: str

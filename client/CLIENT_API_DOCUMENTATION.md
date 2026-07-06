@@ -21,11 +21,14 @@ Latest update: direct resident signup, estate-code onboarding, Nomba wallet fund
 - `GET /wallet/banks`
   - Loads the live Nigerian bank list from Nomba.
   - Supports `?q=` search against bank name or code.
+- `POST /wallet/resolve-bank-account`
+  - Confirms the account holder name from Nomba using `bankCode` and `accountNumber`.
 - `POST /wallet/setup`
   - Accepts BVN and creates the resident's Nomba virtual account on first funding.
 - `GET /wallet/virtual-account`
 - `POST /wallet/transfer-out`
   - Verifies transaction PIN.
+  - Confirms the destination account name with Nomba before sending.
   - Validates Nigerian bank details.
   - Creates a Nomba bank transfer.
   - Tracks pending, success, and failed states.
