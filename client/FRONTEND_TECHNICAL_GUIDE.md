@@ -136,6 +136,26 @@ Only available when wallet status is ready enough to show balance.
 
 Use this to show the resident’s funding destination after setup.
 
+### Bank picker
+
+`GET /wallet/banks?q=first`
+
+Use this to populate the transfer-out bank selector from the live Nomba bank directory.
+The response is already normalized to:
+
+```json
+{
+  "banks": [
+    {
+      "bankName": "First Bank of Nigeria",
+      "bankCode": "011"
+    }
+  ],
+  "count": 1,
+  "source": "nomba"
+}
+```
+
 ### Transfer out
 
 `POST /wallet/transfer-out`
@@ -434,4 +454,3 @@ For estate membership:
 - Treat `409` as “action blocked by current account state.”
 - Treat `502` as an upstream provider issue that should be retryable.
 - Treat `503` on upload features as storage unavailable.
-

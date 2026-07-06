@@ -1,5 +1,6 @@
 import json
-from typing import Any, Dict, Optional, Iterable
+import time
+from typing import Any, Dict, Optional, Iterable, List
 
 import httpx
 
@@ -19,6 +20,9 @@ class NombaService:
         self.client_secret = settings.NOMBA_CLIENT_SECRET
         self.account_id = settings.NOMBA_ACCOUNT_ID
         self._access_token: Optional[str] = None
+        self._bank_list_cache: Optional[List[Dict[str, Any]]] = None
+        self._bank_list_cache_at: float = 0.0
+        self._bank_list_cache_ttl_seconds = 12 * 60 * 60
 
     async def _get_access_token(self) -> str:
         if self._access_token:
@@ -159,6 +163,53 @@ class NombaService:
             "merchantTxRef": reference,
         }
         return await self._request("POST", "/v1/transfers/bank", payload=payload)
+
+    def _normalize_bank_item(self, item: Dict[str, Any]) -> Dict[str, Any]:
+        bank_name = (
+            item.get("bankName")
+            or item.get("bank_name")
+            or item.get("name")
+            or item.get("institutionName")
+            or ""
+        )
+        bank_code = (
+            item.get("bankCode")
+            or item.get("bank_code")
+            or item.get("code")
+            or item.get("institutionCode")
+            or ""
+        )
+        return {
+            "bankName": str(bank_name).strip(),
+            "bankCode": str(bank_code).strip(),
+        }
+
+    def _extract_banks(self, payload: Dict[str, Any]) -> List[Dict[str, Any]]:
+        data = payload.get("data", payload)
+        if isinstance(data, dict):
+            for key in ("banks", "items", "results", "data"):
+                nested = data.get(key)
+                if isinstance(nested, list):
+                    return [self._normalize_bank_item(item) for item in nested if isinstance(item, dict)]
+            return [self._normalize_bank_item(data)] if data else []
+        if isinstance(data, list):
+            return [self._normalize_bank_item(item) for item in data if isinstance(item, dict)]
+        return []
+
+    async def list_banks(self, *, force_refresh: bool = False) -> List[Dict[str, Any]]:
+        now = time.time()
+        if (
+            not force_refresh
+            and self._bank_list_cache is not None
+            and (now - self._bank_list_cache_at) < self._bank_list_cache_ttl_seconds
+        ):
+            return self._bank_list_cache
+
+        response = await self._request("GET", "/v1/transfers/banks")
+        banks = self._extract_banks(response)
+        self._bank_list_cache = banks
+        self._bank_list_cache_at = now
+        return banks
         
     async def create_book_transfer(
         self,

@@ -1,7 +1,7 @@
 import json
 import uuid
 from datetime import datetime, timezone
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from typing import List
@@ -123,6 +123,31 @@ def _wallet_setup_response(wallet_profile: WalletProfile) -> dict:
 
 def _normalized_transfer_reference() -> str:
     return f"WDR-{uuid.uuid4().hex[:12].upper()}"
+
+
+@router.get("/banks")
+async def list_banks(
+    q: str | None = Query(None, description="Optional search term for bank name or code"),
+):
+    try:
+        banks = await nomba_service.list_banks()
+    except NombaAPIError as exc:
+        raise HTTPException(status_code=502, detail=f"Failed to fetch banks from Nomba: {exc}")
+
+    if q:
+        search = q.strip().lower()
+        if search:
+            banks = [
+                bank
+                for bank in banks
+                if search in bank["bankName"].lower() or search in bank["bankCode"].lower()
+            ]
+
+    return {
+        "banks": sorted(banks, key=lambda bank: bank["bankName"]),
+        "count": len(banks),
+        "source": "nomba",
+    }
 
 
 def _validate_transfer_details(data: WalletTransferOutRequest) -> None:

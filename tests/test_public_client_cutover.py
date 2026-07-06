@@ -17,6 +17,9 @@ class PublicClientCutoverTests(unittest.TestCase):
         self.assertIn("txn.status = \"pending\"", source)
         self.assertIn("txn.status = \"success\"", source)
         self.assertIn("txn.status = \"failed\"", source)
+        self.assertIn("@router.get(\"/banks\")", source)
+        self.assertIn("await nomba_service.list_banks()", source)
+        self.assertNotIn("NIGERIAN_BANKS", source)
 
     def test_bills_and_dashboard_require_estate_membership(self):
         bills_source = (ROOT / "client/routes/bills.py").read_text()
@@ -59,6 +62,7 @@ class PublicClientCutoverTests(unittest.TestCase):
         self.assertIn("Nomba transfer-out", working_context)
         self.assertIn("estate-code onboarding", client_doc)
         self.assertIn("bank transfer-out withdrawals", client_doc)
+        self.assertIn("live bank list from Nomba", client_doc)
 
     def test_service_charge_is_internal_ledger_only(self):
         payment_service = (ROOT / "client/core/services/payment_service.py").read_text()

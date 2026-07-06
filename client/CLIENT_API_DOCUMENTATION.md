@@ -18,6 +18,9 @@ Latest update: direct resident signup, estate-code onboarding, Nomba wallet fund
 - `GET /wallet/status`
 - `GET /wallet/balance`
 - `GET /wallet/transactions`
+- `GET /wallet/banks`
+  - Loads the live Nigerian bank list from Nomba.
+  - Supports `?q=` search against bank name or code.
 - `POST /wallet/setup`
   - Accepts BVN and creates the resident's Nomba virtual account on first funding.
 - `GET /wallet/virtual-account`
@@ -47,6 +50,8 @@ Latest update: direct resident signup, estate-code onboarding, Nomba wallet fund
 - `GET /vehicles`
 - `GET /incidents`
   - `/incidents`: submit resident incident reports
+- `GET /feed/residents?q=...`
+- `GET /feed/residents/grouped?q=...`
 - `GET /feed/posts`
 - `GET /dm/conversations`
 - `GET /public/estate-branding/{estate_id}`
