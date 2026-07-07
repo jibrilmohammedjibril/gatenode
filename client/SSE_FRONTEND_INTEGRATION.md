@@ -1,4 +1,4 @@
-# ProGate Client SSE Frontend Integration
+# GateNode Client SSE Frontend Integration
 
 ## Overview
 

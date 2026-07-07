@@ -1,6 +1,6 @@
-# ProGate Feed Frontend Integration Guide
+# GateNode Feed Frontend Integration Guide
 
-This document explains how the frontend should integrate with the current ProGate community feed API.
+This document explains how the frontend should integrate with the current GateNode community feed API.
 
 ## Base Notes
 

@@ -1,4 +1,4 @@
-# ProGate Chat Frontend Note
+# GateNode Chat Frontend Note
 
 Use `isGroup` as the source of truth.
 

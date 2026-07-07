@@ -42,7 +42,7 @@ def resolve_service_amount_kobo(
     if not has_price_range or amount_within_product_range(amount_from_naira, product):
         return amount_from_naira, False
 
-    # Older ProGate docs described this request field as kobo. Accept that
+    # Older GateNode docs described this request field as kobo. Accept that
     # format only when the NGN interpretation is invalid and the kobo value
     # is an integer inside the selected product's advertised price range.
     integral_amount = amount.to_integral_value()

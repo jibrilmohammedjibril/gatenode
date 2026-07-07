@@ -1,6 +1,7 @@
-# ProGate Client
+# GateNode Client
 
-Public resident client for estate communities.
+GateNode is a residential management platform built around a public resident client for estate communities.
+It supports direct signup, estate-code onboarding, wallet funding, rent and utility payments, visitor access, household features, notifications, feed, and direct messages.
 
 ## What lives here
 

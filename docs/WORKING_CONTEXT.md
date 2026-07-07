@@ -1,4 +1,4 @@
-# ProGate Working Context
+# GateNode Working Context
 
 This is the living reference for the public client app. Update it whenever a route, model, integration, or workflow changes.
 
