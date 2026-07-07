@@ -87,6 +87,30 @@ class PublicClientCutoverTests(unittest.TestCase):
         self.assertIn("validate_bill_customer", nomba_source)
         self.assertIn("initiate_bill_payment", nomba_source)
 
+    def test_utility_flows_use_provider_specific_nomba_endpoints(self):
+        nomba_source = (ROOT / "client/core/nomba.py").read_text()
+        services_source = (ROOT / "client/routes/services.py").read_text()
+        payment_service = (ROOT / "client/core/services/payment_service.py").read_text()
+
+        self.assertIn("/v1/bill/electricity/discos", nomba_source)
+        self.assertIn("/v1/bill/electricity/lookup", nomba_source)
+        self.assertIn("/v1/bill/electricity", nomba_source)
+        self.assertIn("/v1/bill/data-plan/{telco}", nomba_source)
+        self.assertIn("/v1/bill/topup", nomba_source)
+        self.assertIn("/v1/bill/data", nomba_source)
+        self.assertIn("/v1/bill/cableTvProduct", nomba_source)
+        self.assertIn("/v1/bill/cabletv/lookup", nomba_source)
+        self.assertIn("/v1/bill/cabletv", nomba_source)
+
+        self.assertIn("_resolve_service_kind", services_source)
+        self.assertIn("list_electricity_discos", services_source)
+        self.assertIn("lookup_electricity_customer", services_source)
+        self.assertIn("lookup_cabletv_customer", services_source)
+        self.assertIn("vend_airtime", payment_service)
+        self.assertIn("vend_data", payment_service)
+        self.assertIn("vend_electricity", payment_service)
+        self.assertIn("subscribe_cabletv", payment_service)
+
 
 if __name__ == "__main__":
     unittest.main()

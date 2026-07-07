@@ -1,5 +1,5 @@
 import logging
-from typing import List
+from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,6 +23,25 @@ from core.config import settings
 
 router = APIRouter(prefix="/services", tags=["Services"])
 logger = logging.getLogger(__name__)
+
+_TELCO_NAMES = {
+    "mtn": "MTN",
+    "glo": "GLO",
+    "airtel": "Airtel",
+    "9mobile": "9mobile",
+}
+
+_CABLE_TYPES = {
+    "dstv": "DSTV",
+    "gotv": "GOTV",
+    "startimes": "Startimes",
+    "showmax": "Showmax",
+}
+
+_ELECTRICITY_METER_TYPES = [
+    {"id": "prepaid", "name": "Prepaid"},
+    {"id": "postpaid", "name": "Postpaid"},
+]
 
 
 def _map_wallet_status(wallet_profile: WalletProfile | None) -> str:
@@ -62,6 +81,56 @@ def _nomba_category(category: str) -> str:
     return mapping.get(category.lower(), "")
 
 
+def _normalize_service_key(value: str) -> str:
+    return value.strip().lower()
+
+
+async def _get_electricity_discos() -> List[Dict[str, Any]]:
+    payload = await nomba_service.list_electricity_discos()
+    data = payload.get("data", [])
+    discos: List[Dict[str, Any]] = []
+    if isinstance(data, list):
+        for item in data:
+            if not isinstance(item, dict):
+                continue
+            disco_id = str(item.get("id") or item.get("disco") or item.get("code") or "").strip()
+            disco_name = str(item.get("name") or item.get("discoName") or disco_id).strip()
+            if disco_id:
+                discos.append({"id": disco_id, "name": disco_name})
+    elif isinstance(data, dict):
+        for key in ("discos", "items", "results", "data"):
+            nested = data.get(key)
+            if not isinstance(nested, list):
+                continue
+            for item in nested:
+                if not isinstance(item, dict):
+                    continue
+                disco_id = str(item.get("id") or item.get("disco") or item.get("code") or "").strip()
+                disco_name = str(item.get("name") or item.get("discoName") or disco_id).strip()
+                if disco_id:
+                    discos.append({"id": disco_id, "name": disco_name})
+            if discos:
+                break
+    return discos
+
+
+async def _resolve_service_kind(service_id: str) -> str:
+    service_key = _normalize_service_key(service_id)
+    if service_key in _CABLE_TYPES:
+        return "cable"
+    if service_key in _TELCO_NAMES:
+        return "telco"
+    discos = await _get_electricity_discos()
+    disco_ids = {str(item["id"]).strip().lower() for item in discos}
+    if service_key in disco_ids:
+        return "electricity"
+    return "unknown"
+
+
+def _safe_provider_name(value: str) -> str:
+    return value if value else "Service"
+
+
 @router.get("/categories")
 async def get_service_categories():
     """
@@ -83,17 +152,9 @@ async def list_services(
     """
     Get Billers for a specific category.
     """
-    nomba_cat = _nomba_category(category)
-    if not nomba_cat:
+    category_slug = category.lower().strip()
+    if category_slug not in {"electricity", "data", "airtime", "cable", "internet"}:
         return []
-
-    try:
-        biller_payload = await nomba_service.list_billers(category=nomba_cat)
-        billers = biller_payload.get("data", [])
-    except NombaAPIError as exc:
-        raise HTTPException(status_code=502, detail=f"Failed to fetch billers: {exc}")
-
-    billers = [b for b in billers if (b.get("category") or "").lower() == nomba_cat.lower()]
 
     logo_map = {
         "MTN": "https://logo.clearbit.com/mtn.com",
@@ -123,76 +184,60 @@ async def list_services(
         "YOLA": "https://logo.clearbit.com/yedc.ng"
     }
 
-    if category.lower() == "electricity":
-        grouped_providers = {}
-        for b in billers:
-            b_name = b.get("name") or ""
-            b_name_upper = b_name.upper()
-            
-            provider_key = None
-            logo = None
-            for key, url in logo_map.items():
-                if key in b_name_upper:
-                    provider_key = key
-                    logo = url
-                    break
-            
-            if not provider_key:
-                provider_key = b_name.split(" ")[0].upper()
-                logo = f"https://ui-avatars.com/api/?name={b_name}&background=random&size=128"
-
-            if provider_key not in grouped_providers:
-                display_name = (
-                    b_name.replace("PostPaid", "")
-                    .replace("Postpaid", "")
-                    .replace("PrePaid", "")
-                    .replace("Prepaid", "")
-                    .replace("Electricity", "")
-                    .replace("Electric", "")
-                    .replace("Elec.", "")
-                    .replace("Elec", "")
-                    .strip()
-                )
-                if not display_name.endswith("Electricity") and not ("Electric" in display_name):
-                    display_name += " Electricity"
-                
-                grouped_providers[provider_key] = {
-                    "id": None,
-                    "name": display_name,
-                    "logoUrl": logo,
-                    "type": category,
-                    "options": []
-                }
-            
-            option_name = "Postpaid" if "post" in b_name.lower() else "Prepaid"
-            grouped_providers[provider_key]["options"].append({
-                "id": b.get("id"),
-                "name": option_name
-            })
-        
-        return sorted(list(grouped_providers.values()), key=lambda x: x["name"])
-
-    providers = []
-    for b in billers:
-        b_name = b.get("name") or ""
-        b_name_upper = b_name.upper()
-        logo = None
+    def _logo_for(name: str) -> str:
+        name_upper = name.upper()
         for key, url in logo_map.items():
-            if key in b_name_upper:
-                logo = url
-                break
-        if not logo:
-             logo = f"https://ui-avatars.com/api/?name={b_name}&background=random&size=128"
-             
-        providers.append({
-            "id": b.get("id"),
-            "name": b_name,
-            "type": category,
-            "logoUrl": logo,
-            "options": []
-        })
-    
-    return providers
+            if key in name_upper:
+                return url
+        return f"https://ui-avatars.com/api/?name={name}&background=random&size=128"
+
+    if category_slug == "electricity":
+        try:
+            billers = await _get_electricity_discos()
+        except NombaAPIError as exc:
+            raise HTTPException(status_code=502, detail=f"Failed to fetch billers: {exc}")
+
+        return [
+            {
+                "id": b["id"],
+                "name": b["name"],
+                "type": "electricity",
+                "logoUrl": _logo_for(b["name"]),
+                "options": [
+                    {"id": "prepaid", "name": "Prepaid"},
+                    {"id": "postpaid", "name": "Postpaid"},
+                ],
+            }
+            for b in billers
+        ]
+
+    if category_slug in {"cable", "data", "airtime", "internet"}:
+        providers = []
+        if category_slug == "cable":
+            for slug, name in _CABLE_TYPES.items():
+                providers.append(
+                    {
+                        "id": slug,
+                        "name": name,
+                        "type": "cable",
+                        "logoUrl": _logo_for(name),
+                        "options": [],
+                    }
+                )
+        else:
+            for slug, name in _TELCO_NAMES.items():
+                providers.append(
+                    {
+                        "id": slug,
+                        "name": name,
+                        "type": category_slug,
+                        "logoUrl": _logo_for(name),
+                        "options": [],
+                    }
+                )
+        return providers
+
+    return []
 
 @router.get("/billers/{biller_code}/items")
 async def list_biller_items(
@@ -202,24 +247,57 @@ async def list_biller_items(
     """
     Get Items (Plans) for a specific Biller.
     """
+    service_kind = await _resolve_service_kind(biller_code)
+
     try:
         payload = await nomba_service.list_biller_products(biller_id=biller_code)
         products = nomba_service.extract_biller_products(payload)
     except NombaAPIError as exc:
         raise HTTPException(status_code=502, detail=f"Failed to fetch biller products: {exc}")
 
-    return [
-        {
-            "item_code": p.get("slug"),
-            "item_name": p.get("name"),
-            "type": p.get("type"),
-            "amount": (p.get("minimum_amount") / 100.0) if p.get("minimum_amount") is not None else None,
-            "minimum_amount": (p.get("minimum_amount") / 100.0) if p.get("minimum_amount") is not None else None,
-            "maximum_amount": (p.get("maximum_amount") / 100.0) if p.get("maximum_amount") is not None else None,
-            "currency": p.get("currency", "NGN"),
-        }
-        for p in products
-    ]
+    if service_kind == "electricity":
+        return [
+            {
+                "item_code": product.get("slug"),
+                "item_name": product.get("name"),
+                "type": product.get("type") or "Electricity",
+                "amount": None,
+                "minimum_amount": None,
+                "maximum_amount": None,
+                "currency": "NGN",
+            }
+            for product in products
+        ]
+
+    if service_kind == "cable":
+        return [
+            {
+                "item_code": product.get("subScriptionType") or product.get("slug") or product.get("name"),
+                "item_name": product.get("subScriptionType") or product.get("name"),
+                "type": "cable",
+                "amount": (product.get("amount") / 100.0) if product.get("amount") is not None else None,
+                "minimum_amount": (product.get("minimum_amount") / 100.0) if product.get("minimum_amount") is not None else None,
+                "maximum_amount": (product.get("maximum_amount") / 100.0) if product.get("maximum_amount") is not None else None,
+                "currency": "NGN",
+            }
+            for product in products
+        ]
+
+    if service_kind == "telco":
+        return [
+            {
+                "item_code": product.get("plan") or product.get("slug") or str(product.get("amount")),
+                "item_name": product.get("plan") or product.get("name") or f"NGN {product.get('amount')}",
+                "type": "data",
+                "amount": (product.get("amount") / 100.0) if product.get("amount") is not None else None,
+                "minimum_amount": (product.get("minimum_amount") / 100.0) if product.get("minimum_amount") is not None else None,
+                "maximum_amount": (product.get("maximum_amount") / 100.0) if product.get("maximum_amount") is not None else None,
+                "currency": "NGN",
+            }
+            for product in products
+        ]
+
+    return []
 
 @router.post("/verify", response_model=ServiceVerifyResponse)
 async def verify_service(
@@ -229,6 +307,37 @@ async def verify_service(
     """
     Verify SmartCard/Meter Number.
     """
+    service_kind = await _resolve_service_kind(data.serviceId)
+
+    if service_kind == "electricity":
+        try:
+            result = await nomba_service.lookup_electricity_customer(
+                disco=data.serviceId,
+                customer_id=data.accountNumber,
+            )
+        except NombaAPIError as exc:
+            raise HTTPException(status_code=400, detail=f"Validation failed: {exc}")
+        account_name = result.get("data") or data.accountNumber
+        return {"valid": True, "accountName": str(account_name)}
+
+    if service_kind == "cable":
+        try:
+            result = await nomba_service.lookup_cabletv_customer(
+                cable_tv_type=data.serviceId,
+                customer_id=data.accountNumber,
+            )
+        except NombaAPIError as exc:
+            raise HTTPException(status_code=400, detail=f"Validation failed: {exc}")
+        account_name = result.get("data") or data.accountNumber
+        return {"valid": True, "accountName": str(account_name)}
+
+    if service_kind == "telco":
+        normalized_phone = normalize_phone_number(data.accountNumber)
+        return {
+            "valid": True,
+            "accountName": normalized_phone or data.accountNumber,
+        }
+
     provider_slug = data.provider
     categories = ["electricity", "airtime", "data", "cable", "internet"]
     if provider_slug:
@@ -237,14 +346,10 @@ async def verify_service(
             provider_slug = None
 
     if not provider_slug:
-        try:
-            payload = await nomba_service.list_biller_products(biller_id=data.serviceId)
-            products = nomba_service.extract_biller_products(payload)
-        except NombaAPIError as exc:
-            raise HTTPException(status_code=502, detail=f"Failed to fetch products for validation: {exc}")
-        if not products:
-            raise HTTPException(status_code=400, detail="No products found for selected provider")
-        provider_slug = products[0]["slug"]
+        return {
+            "valid": True,
+            "accountName": data.accountNumber,
+        }
 
     try:
         result = await nomba_service.validate_bill_customer(
@@ -253,7 +358,7 @@ async def verify_service(
     except NombaAPIError as exc:
         raise HTTPException(status_code=400, detail=f"Validation failed: {exc}")
 
-    account_name = (result.get("data") or {}).get("customerName") or data.accountNumber
+    account_name = result.get("data") or data.accountNumber
     return {
         "valid": True,
         "accountName": account_name,
@@ -326,28 +431,57 @@ async def pay_service(
     if data.amount <= 0:
         raise HTTPException(status_code=400, detail="Amount must be greater than zero")
 
-    selected_product_code = data.providerId
-    categories = ["electricity", "airtime", "data", "cable", "internet"]
-    if selected_product_code:
-        p_lower = selected_product_code.lower()
-        if p_lower in categories or "electric" in p_lower:
-            selected_product_code = None
+    service_kind = await _resolve_service_kind(data.serviceId)
+    selected_product = None
+    amount_reference_product: Dict[str, Any] = {}
+
+    if service_kind == "electricity":
+        meter_type = data.providerId or "prepaid"
+        selected_product = {
+            "slug": _normalize_service_key(meter_type),
+            "name": meter_type.title(),
+            "type": "Electricity",
+        }
+    elif service_kind in {"cable", "telco"} and data.providerId:
+        try:
+            payload = await nomba_service.list_biller_products(biller_id=data.serviceId)
+            products = nomba_service.extract_biller_products(payload)
+        except NombaAPIError as exc:
+            raise HTTPException(status_code=502, detail=f"Failed to fetch service products: {exc}")
+        if not products:
+            raise HTTPException(status_code=400, detail="No products available for selected service provider")
+        try:
+            selected_product = select_service_product(products, data.providerId)
+            amount_reference_product = selected_product
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+    elif service_kind == "telco":
+        selected_product = None
+    else:
+        try:
+            payload = await nomba_service.list_biller_products(biller_id=data.serviceId)
+            products = nomba_service.extract_biller_products(payload)
+        except NombaAPIError as exc:
+            raise HTTPException(status_code=502, detail=f"Failed to fetch service products: {exc}")
+        if products and data.providerId:
+            try:
+                selected_product = select_service_product(products, data.providerId)
+                amount_reference_product = selected_product
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc))
+        elif products:
+            selected_product = products[0]
+            amount_reference_product = selected_product
 
     try:
-        payload = await nomba_service.list_biller_products(biller_id=data.serviceId)
-        products = nomba_service.extract_biller_products(payload)
-    except NombaAPIError as exc:
-        raise HTTPException(status_code=502, detail=f"Failed to fetch service products: {exc}")
-    if not products:
-        raise HTTPException(status_code=400, detail="No products available for selected service provider")
-
-    try:
-        selected_product = select_service_product(products, selected_product_code)
-        amount_kobo, used_legacy_kobo = resolve_service_amount_kobo(data.amount, selected_product)
+        amount_kobo, used_legacy_kobo = resolve_service_amount_kobo(
+            data.amount,
+            amount_reference_product,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
-    if used_legacy_kobo:
+    if used_legacy_kobo and selected_product:
         logger.warning(
             "Accepted legacy kobo amount for utility payment (biller=%s, product=%s)",
             data.serviceId,
@@ -355,17 +489,26 @@ async def pay_service(
         )
 
     try:
+        bill_type = "Airtime"
+        if service_kind == "electricity":
+            bill_type = "Electricity"
+        elif service_kind == "cable":
+            bill_type = "CableTV"
+        elif service_kind == "telco" and data.providerId:
+            bill_type = "Data"
+
         result = await process_external_utility_payment(
             current_user,
             unit.id if unit else None,
             amount_kobo,
             data.serviceId,
-            selected_product["slug"],
+            (selected_product or {}).get("slug") or data.providerId or data.serviceId,
             data.accountNumber,
             db,
             debit_wallet=True,
             provider="nomba_bill",
-            product=selected_product,
+            product=selected_product or amount_reference_product or None,
+            bill_type=bill_type,
         )
     except (RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=f"Bill Payment Failed: {exc}")

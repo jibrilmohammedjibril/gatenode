@@ -864,6 +864,7 @@ async def process_external_utility_payment(
     provider: str = "nomba_bill",
     reference: str | None = None,
     product: dict | None = None,
+    bill_type: str | None = None,
 ):
     """
     Fulfill an airtime/data/cable/electricity payment through Nomba Bills API.
@@ -887,7 +888,11 @@ async def process_external_utility_payment(
     if not wallet_profile or wallet_profile.status != "active" or not wallet_profile.nomba_account_id:
         raise RuntimeError("Active Nomba wallet is required for utility payments.")
 
-    if product is None:
+    selected_product = product or {}
+    bill_type_value = (bill_type or selected_product.get("type") or "Data").strip()
+    bill_type_slug = bill_type_value.lower()
+
+    if bill_type_slug in {"data", "television", "cabletv", "cable"} and not selected_product:
         try:
             products_payload = await nomba_service.list_biller_products(biller_id=service_id)
             products = nomba_service.extract_biller_products(products_payload)
@@ -898,35 +903,51 @@ async def process_external_utility_payment(
             raise RuntimeError("No service products available for the selected provider.")
 
         if item_code:
-            product = next(
+            selected_product = next(
                 (
                     candidate
                     for candidate in products
-                    if candidate.get("slug") == item_code or candidate.get("id") == item_code
+                    if candidate.get("slug") == item_code
+                    or candidate.get("id") == item_code
+                    or candidate.get("plan") == item_code
+                    or candidate.get("subScriptionType") == item_code
                 ),
                 None,
             )
-            if product is None:
+            if selected_product is None:
                 raise ValueError("Selected product is not available for this service provider")
         else:
-            product = products[0]
+            selected_product = products[0]
 
-    minimum_amount = product_price_kobo(product, "minimum_amount")
-    maximum_amount = product_price_kobo(product, "maximum_amount")
+    if bill_type_slug == "electricity" and not selected_product:
+        selected_product = {
+            "slug": (item_code or "prepaid").strip().lower(),
+            "name": (item_code or "Prepaid").strip().title(),
+            "type": "Electricity",
+        }
+    elif bill_type_slug == "airtime" and not selected_product:
+        selected_product = {
+            "slug": item_code or service_id,
+            "name": item_code or service_id,
+            "type": "Airtime",
+        }
+
+    minimum_amount = product_price_kobo(selected_product, "minimum_amount")
+    maximum_amount = product_price_kobo(selected_product, "maximum_amount")
     if minimum_amount is not None and amount < minimum_amount:
         raise ValueError(f"Payment amount is below the product minimum of NGN {minimum_amount / 100:.2f}")
     if maximum_amount is not None and amount > maximum_amount:
         raise ValueError(f"Payment amount exceeds the product maximum of NGN {maximum_amount / 100:.2f}")
 
-    bill_type = product.get("type") or "Data"
-    product_slug = product.get("slug")
+    bill_type = bill_type_value
+    product_slug = selected_product.get("slug") or item_code or service_id
     if not product_slug:
         raise RuntimeError("Selected service product has no Nomba slug")
-    friendly_name = product.get("name") or "Utility Bill"
+    friendly_name = selected_product.get("name") or "Utility Bill"
     transaction_description = _utility_transaction_description(
         bill_type=bill_type,
         friendly_name=friendly_name,
-        product=product,
+        product=selected_product,
         product_slug=product_slug,
         customer_id=customer_id,
     )
@@ -962,60 +983,56 @@ async def process_external_utility_payment(
         raise RuntimeError("Insufficient wallet balance")
 
     try:
-        attributes = {
-            "reference": txn.reference,
-            "amount": amount,
-        }
+        external_amount = amount / 100.0
+        if float(external_amount).is_integer():
+            external_amount = int(external_amount)
 
-        phone_number = user.phone_number or customer_id
-
-        if bill_type == "Airtime":
-            provider_slug = (product_slug or "").split("_")[0]
-            if not provider_slug:
-                raise RuntimeError("Unable to resolve airtime provider slug")
-            attributes.update(
-                {
-                    "provider": provider_slug,
-                    "phoneNumber": customer_id,
-                }
+        if bill_type.lower() == "electricity":
+            res = await nomba_service.vend_electricity(
+                disco=service_id,
+                merchant_tx_ref=txn.reference,
+                payer_name=user.full_name,
+                amount=external_amount,
+                customer_id=customer_id,
+                meter_type=str(selected_product.get("slug") or "prepaid"),
             )
-        elif bill_type == "Data":
-            attributes.update(
-                {
-                    "phoneNumber": customer_id,
-                    "productSlug": product_slug,
-                }
+        elif bill_type.lower() == "airtime":
+            res = await nomba_service.vend_airtime(
+                amount=external_amount,
+                phone_number=customer_id,
+                network=service_id,
+                merchant_tx_ref=txn.reference,
+                sender_name=user.full_name,
             )
-        elif bill_type == "Electricity":
-            attributes.update(
-                {
-                    "meterAccountNumber": customer_id,
-                    "phoneNumber": phone_number,
-                    "productSlug": product_slug,
-                }
+        elif bill_type.lower() == "data":
+            res = await nomba_service.vend_data(
+                amount=external_amount,
+                phone_number=customer_id,
+                network=service_id,
+                merchant_tx_ref=txn.reference,
+                sender_name=user.full_name,
             )
-        elif bill_type in {"Television", "CableTV", "Cable"}:
-            attributes.update(
-                {
-                    "smartCardNumber": customer_id,
-                    "phoneNumber": phone_number,
-                    "productSlug": product_slug,
-                }
+        elif bill_type.lower() in {"television", "cabletv", "cable"}:
+            res = await nomba_service.subscribe_cabletv(
+                cable_tv_type=service_id,
+                merchant_tx_ref=txn.reference,
+                payer_name=user.full_name,
+                amount=external_amount,
+                customer_id=customer_id,
             )
         else:
-            attributes.update(
-                {
-                    "productSlug": product_slug,
-                    "customerNumber": customer_id,
-                }
+            attributes = {
+                "reference": txn.reference,
+                "amount": external_amount,
+                "productSlug": product_slug,
+                "customerNumber": customer_id,
+            }
+            res = await nomba_service.initiate_bill_payment(
+                bill_type=bill_type,
+                attributes=attributes,
+                account_id=wallet_profile.nomba_account_id,
+                reference=txn.reference,
             )
-
-        res = await nomba_service.initiate_bill_payment(
-            bill_type=bill_type,
-            attributes=attributes,
-            account_id=wallet_profile.nomba_account_id,
-            reference=txn.reference,
-        )
 
         if not (res.get("data") or {}).get("id"):
             message = str(res.get("errors") or res)

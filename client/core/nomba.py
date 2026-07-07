@@ -24,6 +24,57 @@ class NombaService:
         self._bank_list_cache_at: float = 0.0
         self._bank_list_cache_ttl_seconds = 12 * 60 * 60
 
+    @staticmethod
+    def _normalize_slug(value: str) -> str:
+        return value.strip().lower()
+
+    @staticmethod
+    def _is_electricity_meter_type(value: str) -> bool:
+        return NombaService._normalize_slug(value) in {"prepaid", "postpaid"}
+
+    @staticmethod
+    def _is_cable_type(value: str) -> bool:
+        return NombaService._normalize_slug(value) in {"dstv", "gotv", "startimes", "showmax"}
+
+    @staticmethod
+    def _is_telco(value: str) -> bool:
+        return NombaService._normalize_slug(value) in {"mtn", "glo", "airtel", "9mobile"}
+
+    def _electricity_meter_options(self) -> List[Dict[str, Any]]:
+        return [
+            {"slug": "prepaid", "name": "Prepaid", "type": "Electricity"},
+            {"slug": "postpaid", "name": "Postpaid", "type": "Electricity"},
+        ]
+
+    @staticmethod
+    def _normalize_plan_amount_to_kobo(value: Any) -> Optional[int]:
+        if value is None:
+            return None
+        try:
+            return int(float(value) * 100)
+        except (TypeError, ValueError):
+            return None
+
+    def _static_billers_for_category(self, category: str) -> List[Dict[str, Any]]:
+        category_slug = self._normalize_slug(category)
+        if category_slug == "electricity":
+            return []
+        if category_slug == "cable":
+            return [
+                {"id": "dstv", "name": "DSTV", "type": "cable", "options": []},
+                {"id": "gotv", "name": "GOTV", "type": "cable", "options": []},
+                {"id": "startimes", "name": "Startimes", "type": "cable", "options": []},
+                {"id": "showmax", "name": "Showmax", "type": "cable", "options": []},
+            ]
+        if category_slug in {"airtime", "data", "internet"}:
+            return [
+                {"id": "mtn", "name": "MTN", "type": category_slug, "options": []},
+                {"id": "glo", "name": "GLO", "type": category_slug, "options": []},
+                {"id": "airtel", "name": "Airtel", "type": category_slug, "options": []},
+                {"id": "9mobile", "name": "9mobile", "type": category_slug, "options": []},
+            ]
+        return []
+
     async def _get_access_token(self) -> str:
         if self._access_token:
             # Note: For production, we should handle token expiration.
@@ -128,6 +179,149 @@ class NombaService:
             "bvn": bvn,
         }
         return await self._request("POST", "/v1/accounts/virtual", payload=payload)
+
+    async def list_electricity_discos(self) -> Dict[str, Any]:
+        return await self._request("GET", "/v1/bill/electricity/discos")
+
+    async def lookup_electricity_customer(self, *, disco: str, customer_id: str) -> Dict[str, Any]:
+        return await self._request(
+            "GET",
+            "/v1/bill/electricity/lookup",
+            params={"disco": disco, "customerId": customer_id},
+        )
+
+    async def vend_electricity(
+        self,
+        *,
+        disco: str,
+        merchant_tx_ref: str,
+        payer_name: str,
+        amount: int,
+        customer_id: str,
+        meter_type: str,
+    ) -> Dict[str, Any]:
+        payload = {
+            "disco": disco,
+            "merchantTxRef": merchant_tx_ref,
+            "payerName": payer_name,
+            "amount": amount,
+            "customerId": customer_id,
+            "meterType": meter_type,
+        }
+        return await self._request("POST", "/v1/bill/electricity", payload=payload)
+
+    async def list_data_plans(self, *, telco: str) -> Dict[str, Any]:
+        payload = await self._request("GET", f"/v1/bill/data-plan/{telco}")
+        data = payload.get("data", [])
+        if isinstance(data, list):
+            normalized: List[Dict[str, Any]] = []
+            for item in data:
+                if not isinstance(item, dict):
+                    continue
+                amount = self._normalize_plan_amount_to_kobo(item.get("amount"))
+                normalized.append(
+                    {
+                        **item,
+                        "amount": amount,
+                        "minimum_amount": amount,
+                        "maximum_amount": amount,
+                        "slug": item.get("slug") or item.get("plan"),
+                        "name": item.get("plan") or item.get("name"),
+                        "type": item.get("type") or "Data",
+                    }
+                )
+            payload["data"] = normalized
+        return payload
+
+    async def vend_airtime(
+        self,
+        *,
+        amount: int,
+        phone_number: str,
+        network: str,
+        merchant_tx_ref: str,
+        sender_name: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        payload = {
+            "amount": amount,
+            "phoneNumber": phone_number,
+            "network": network,
+            "merchantTxRef": merchant_tx_ref,
+        }
+        if sender_name:
+            payload["senderName"] = sender_name
+        return await self._request("POST", "/v1/bill/topup", payload=payload)
+
+    async def vend_data(
+        self,
+        *,
+        amount: int,
+        phone_number: str,
+        network: str,
+        merchant_tx_ref: str,
+        sender_name: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        payload = {
+            "amount": amount,
+            "phoneNumber": phone_number,
+            "network": network,
+            "merchantTxRef": merchant_tx_ref,
+        }
+        if sender_name:
+            payload["senderName"] = sender_name
+        return await self._request("POST", "/v1/bill/data", payload=payload)
+
+    async def list_cabletv_plans(self, *, cable_tv_type: str) -> Dict[str, Any]:
+        payload = await self._request(
+            "GET",
+            "/v1/bill/cableTvProduct",
+            params={"cableTvType": cable_tv_type},
+        )
+        data = payload.get("data", [])
+        if isinstance(data, list):
+            normalized: List[Dict[str, Any]] = []
+            for item in data:
+                if not isinstance(item, dict):
+                    continue
+                amount = self._normalize_plan_amount_to_kobo(item.get("amount"))
+                normalized.append(
+                    {
+                        **item,
+                        "amount": amount,
+                        "minimum_amount": amount,
+                        "maximum_amount": amount,
+                        "slug": item.get("slug") or item.get("subScriptionType") or item.get("name"),
+                        "name": item.get("subScriptionType") or item.get("name"),
+                        "type": "CableTV",
+                    }
+                )
+            payload["data"] = normalized
+        return payload
+
+    async def lookup_cabletv_customer(self, *, cable_tv_type: str, customer_id: str) -> Dict[str, Any]:
+        return await self._request(
+            "GET",
+            "/v1/bill/cabletv/lookup",
+            params={"cableTvType": cable_tv_type, "customerId": customer_id},
+        )
+
+    async def subscribe_cabletv(
+        self,
+        *,
+        cable_tv_type: str,
+        merchant_tx_ref: str,
+        payer_name: str,
+        amount: int,
+        customer_id: str,
+    ) -> Dict[str, Any]:
+        payload = {
+            "cableTvType": cable_tv_type,
+            "merchantTxRef": merchant_tx_ref,
+            "payerName": payer_name,
+            "amount": amount,
+            "customerId": customer_id,
+        }
+        return await self._request("POST", "/v1/bill/cabletv", payload=payload)
 
     async def fetch_account_balance(self, *, account_id: str) -> Dict[str, Any]:
         # Placeholder for fetching account balance if Nomba supports per-virtual-account balances
@@ -282,18 +476,47 @@ class NombaService:
         return []
 
     async def list_billers(self, *, category: str) -> Dict[str, Any]:
-        payload = {"category": category}
-        return await self._request_with_candidates(
-            "GET",
-            (
-                "/v1/billers",
-                "/v1/bill-payments/billers",
-                "/v1/services/billers",
-            ),
-            params=payload,
-        )
+        category_slug = self._normalize_slug(category)
+        if category_slug == "electricity":
+            response = await self.list_electricity_discos()
+            data = response.get("data", [])
+            billers = []
+            if isinstance(data, list):
+                for item in data:
+                    if not isinstance(item, dict):
+                        continue
+                    disco_id = str(item.get("id") or item.get("disco") or item.get("code") or "").strip()
+                    name = str(item.get("name") or item.get("discoName") or disco_id).strip()
+                    if not disco_id:
+                        continue
+                    billers.append(
+                        {
+                            "id": disco_id,
+                            "name": name,
+                            "type": "electricity",
+                            "options": self._electricity_meter_options(),
+                        }
+                    )
+            response["data"] = billers
+            return response
+        return {
+            "code": "00",
+            "description": "Success",
+            "data": self._static_billers_for_category(category_slug),
+        }
 
     async def list_biller_products(self, *, biller_id: str) -> Dict[str, Any]:
+        biller_slug = self._normalize_slug(biller_id)
+        if self._is_electricity_meter_type(biller_slug):
+            return {
+                "code": "00",
+                "description": "Success",
+                "data": self._electricity_meter_options(),
+            }
+        if self._is_cable_type(biller_slug):
+            return await self.list_cabletv_plans(cable_tv_type=biller_slug)
+        if self._is_telco(biller_slug):
+            return await self.list_data_plans(telco=biller_slug)
         return await self._request_with_candidates(
             "GET",
             (
@@ -304,6 +527,24 @@ class NombaService:
         )
 
     async def validate_bill_customer(self, *, provider_slug: str, customer_number: str) -> Dict[str, Any]:
+        provider_slug_normalized = self._normalize_slug(provider_slug)
+        if provider_slug_normalized in {"prepaid", "postpaid"}:
+            return {
+                "code": "00",
+                "description": "Success",
+                "data": customer_number,
+            }
+        if self._is_cable_type(provider_slug_normalized):
+            return await self.lookup_cabletv_customer(
+                cable_tv_type=provider_slug_normalized,
+                customer_id=customer_number,
+            )
+        if self._is_telco(provider_slug_normalized):
+            return {
+                "code": "00",
+                "description": "Success",
+                "data": customer_number,
+            }
         payload = {
             "provider": provider_slug,
             "providerSlug": provider_slug,
@@ -336,6 +577,40 @@ class NombaService:
             "reference": reference,
             "merchantTxRef": reference,
         }
+        bill_type_slug = self._normalize_slug(bill_type)
+        if bill_type_slug == "electricity":
+            return await self.vend_electricity(
+                disco=str(attributes.get("disco") or attributes.get("provider") or ""),
+                merchant_tx_ref=reference or attributes.get("reference") or attributes.get("merchantTxRef") or "",
+                payer_name=str(attributes.get("payerName") or attributes.get("senderName") or "Nomba User"),
+                amount=int(attributes.get("amount") or 0),
+                customer_id=str(attributes.get("customerId") or attributes.get("customerNumber") or attributes.get("meterAccountNumber") or ""),
+                meter_type=str(attributes.get("meterType") or "prepaid"),
+            )
+        if bill_type_slug == "airtime":
+            return await self.vend_airtime(
+                amount=int(attributes.get("amount") or 0),
+                phone_number=str(attributes.get("phoneNumber") or attributes.get("customerNumber") or ""),
+                network=str(attributes.get("network") or attributes.get("provider") or ""),
+                merchant_tx_ref=reference or attributes.get("reference") or attributes.get("merchantTxRef") or "",
+                sender_name=str(attributes.get("senderName") or attributes.get("payerName") or ""),
+            )
+        if bill_type_slug == "data":
+            return await self.vend_data(
+                amount=int(attributes.get("amount") or 0),
+                phone_number=str(attributes.get("phoneNumber") or attributes.get("customerNumber") or ""),
+                network=str(attributes.get("network") or attributes.get("provider") or ""),
+                merchant_tx_ref=reference or attributes.get("reference") or attributes.get("merchantTxRef") or "",
+                sender_name=str(attributes.get("senderName") or attributes.get("payerName") or ""),
+            )
+        if bill_type_slug in {"television", "cabletv", "cable"}:
+            return await self.subscribe_cabletv(
+                cable_tv_type=str(attributes.get("cableTvType") or attributes.get("provider") or ""),
+                merchant_tx_ref=reference or attributes.get("reference") or attributes.get("merchantTxRef") or "",
+                payer_name=str(attributes.get("payerName") or attributes.get("senderName") or "Nomba User"),
+                amount=int(attributes.get("amount") or 0),
+                customer_id=str(attributes.get("customerId") or attributes.get("customerNumber") or ""),
+            )
         return await self._request_with_candidates(
             "POST",
             (

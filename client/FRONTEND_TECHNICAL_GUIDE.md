@@ -280,13 +280,35 @@ Supported slugs:
 
 ### Billers and products
 
+Use the category first, then load products only when the category needs them.
+
+- `GET /services/billers?category=electricity`
+  - returns electricity discos
+  - each disco includes `prepaid` and `postpaid` options
+- `GET /services/billers?category=data`
+  - returns telcos
+  - follow with `GET /services/billers/{biller_code}/items` to load data plans
 - `GET /services/billers?category=airtime`
+  - returns telcos
+  - no plan selection is required before payment
+- `GET /services/billers?category=cable`
+  - returns cable providers
+  - follow with `GET /services/billers/{biller_code}/items` to load subscription plans
 - `GET /services/billers/{biller_code}/items`
+  - electricity: meter types
+  - data: plans
+  - cable: subscription packages
 
 ### Validation
 
 - `POST /services/verify`
 - `POST /services/validate-phone`
+
+Validation rules:
+
+- electricity and cable use provider lookup first
+- airtime and data can skip provider lookup and rely on the phone number flow
+- if the user has not joined an estate yet, keep the wallet and bill screens in a pre-join state instead of blocking the whole app
 
 ### Pay utility
 
@@ -303,6 +325,13 @@ Request body:
   "transactionPin": "1234"
 }
 ```
+
+`providerId` means:
+
+- electricity: meter type, usually `prepaid` or `postpaid`
+- data: selected data plan
+- cable: selected subscription package
+- airtime: omit it
 
 Use one payment UI for:
 
